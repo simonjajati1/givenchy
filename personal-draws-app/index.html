@@ -58,6 +58,9 @@
   .a-empty { color: var(--ink-soft); font-style: italic; font-size: 13px; padding: 16px 4px; }
   .a-loading { color: var(--ink-soft); font-size: 13px; padding: 20px 4px; }
   .a-error { color: var(--debit); font-size: 13px; padding: 10px; background: #fff0ee; border: 1px solid var(--debit); border-radius: 3px; margin-bottom: 14px; }
+  .a-gate { max-width: 330px; margin: 12vh auto 0; padding: 0 16px; }
+  .a-gate-title { font-size: 13px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--gold); margin-bottom: 8px; }
+  .a-gate-sub { font-size: 13px; color: var(--ink-soft); line-height: 1.5; margin-bottom: 18px; }
 </style>
 </head>
 <body>
@@ -78,6 +81,7 @@ function fmt(n) {
 async function loadData() {
   try {
     const r = await fetch('/api/data');
+    if (r.status === 401) { needsLogin = true; renderLogin(); return; }
     if (!r.ok) throw new Error('Server error ' + r.status);
     const data = await r.json();
     people = data.people || people;
@@ -92,11 +96,12 @@ async function loadData() {
 
 async function saveData() {
   try {
-    await fetch('/api/data', {
+    const r = await fetch('/api/data', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ people, entries, settlements })
     });
+    if (r.status === 401) { needsLogin = true; renderLogin(); return; }
   } catch (e) { console.error("Save failed", e); }
 }
 
@@ -186,6 +191,53 @@ function el(tag, attrs, children) {
   return e;
 }
 
+let needsLogin = false;
+
+function renderLogin() {
+  const root = document.getElementById("acct-root");
+  root.innerHTML = "";
+  const input = el("input", { type: "password", placeholder: "Password" });
+  const err = el("div", { class: "a-error", style: "display:none" }, []);
+  async function submit() {
+    const pw = input.value;
+    if (!pw) return;
+    err.style.display = "none";
+    btn.disabled = true; btn.textContent = "Checking…";
+    try {
+      const r = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pw })
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) { needsLogin = false; loadData(); return; }
+      err.textContent = j.error || ('Login failed (' + r.status + ')');
+    } catch (e) {
+      err.textContent = "Network error: " + e.message;
+    }
+    err.style.display = "block";
+    btn.disabled = false; btn.textContent = "Unlock";
+    input.value = "";
+    input.focus();
+  }
+  const btn = el("button", { class: "a-add-btn", style: "width:100%;margin-top:0", onClick: submit }, ["Unlock"]);
+  input.addEventListener("keydown", ev => { if (ev.key === "Enter") submit(); });
+  root.appendChild(el("div", { class: "a-gate" }, [
+    el("div", { class: "a-gate-title" }, ["Personal Draws Ledger"]),
+    el("div", { class: "a-gate-sub" }, ["This ledger is private. Enter the password to continue."]),
+    err,
+    el("div", { class: "a-field", style: "margin-bottom:14px" }, [input]),
+    btn
+  ]));
+  input.focus();
+}
+
+async function doLogout() {
+  try { await fetch('/api/logout', { method: 'POST' }); } catch (e) {}
+  needsLogin = true;
+  renderLogin();
+}
+
 function render() {
   const root = document.getElementById("acct-root");
   root.innerHTML = "";
@@ -208,7 +260,8 @@ function render() {
     el("div", { style: "text-align:right" }, [
       el("div", { class: "a-sub", style: "margin-bottom:4px" }, ["I am"]),
       actingSelect,
-      el("button", { class: "a-btn", style: "margin-top:8px;display:block;width:100%", onClick: exportData }, ["Download backup"])
+      el("button", { class: "a-btn", style: "margin-top:8px;display:block;width:100%", onClick: exportData }, ["Download backup"]),
+      el("button", { class: "a-btn", style: "margin-top:6px;display:block;width:100%", onClick: doLogout }, ["Lock"])
     ])
   ]));
 
