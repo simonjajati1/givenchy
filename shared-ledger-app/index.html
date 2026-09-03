@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shared Ledger</title>
+<style>
+  body { margin: 0; }
+  #ledger-root {
+    --paper: #f6f3ec; --ink: #1e2a33; --ink-soft: #5b6a74; --rule: #d8d1c0;
+    --credit: #4d6b53; --debit: #9c4a3c; --gold: #a9793f; --card: #fffdf8;
+    font-family: 'Iowan Old Style', Georgia, 'Times New Roman', serif;
+    color: var(--ink); background: var(--paper); padding: 28px 18px 60px;
+    max-width: 760px; margin: 0 auto; box-sizing: border-box; min-height: 100vh;
+  }
+  #ledger-root * { box-sizing: border-box; }
+  .lg-num { font-family: 'Courier New', Menlo, monospace; font-variant-numeric: tabular-nums; }
+  .lg-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px double var(--ink); padding-bottom: 14px; margin-bottom: 22px; gap: 12px; flex-wrap: wrap; }
+  .lg-title { font-size: 24px; letter-spacing: 0.02em; font-weight: 600; }
+  .lg-sub { font-size: 11px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.12em; }
+  .lg-names { display: flex; gap: 8px; margin-bottom: 22px; flex-wrap: wrap; }
+  .lg-name-input { font-family: inherit; font-size: 13px; font-weight: 600; background: transparent; border: none; border-bottom: 1px solid var(--rule); padding: 4px 2px; width: 92px; color: var(--ink); }
+  .lg-name-input:focus { outline: none; border-bottom-color: var(--gold); }
+  .lg-balances { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 26px; }
+  .lg-bal-card { background: var(--card); border: 1px solid var(--rule); border-radius: 3px; padding: 14px 10px; text-align: center; }
+  .lg-bal-name { font-size: 12px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+  .lg-bal-amt { font-size: 19px; font-weight: 700; }
+  .lg-bal-amt.pos { color: var(--credit); }
+  .lg-bal-amt.neg { color: var(--debit); }
+  .lg-bal-amt.zero { color: var(--ink-soft); }
+  .lg-bal-caption { font-size: 10px; color: var(--ink-soft); margin-top: 3px; }
+  .lg-section-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--gold); border-bottom: 1px solid var(--rule); padding-bottom: 6px; margin: 26px 0 12px; cursor: default; }
+  .lg-settle { background: var(--card); border: 1px solid var(--rule); border-left: 3px solid var(--gold); padding: 12px 14px; font-size: 14px; margin-bottom: 6px; border-radius: 2px; }
+  .lg-settle-empty { color: var(--ink-soft); font-size: 13px; font-style: italic; }
+  .lg-form { background: var(--card); border: 1px solid var(--rule); border-radius: 3px; padding: 16px; margin-bottom: 8px; }
+  .lg-form-row { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  .lg-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+  .lg-tab { font-family: inherit; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; padding: 6px 12px; border: 1px solid var(--rule); background: transparent; cursor: pointer; color: var(--ink-soft); border-radius: 2px; }
+  .lg-tab.active { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  .lg-field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 110px; }
+  .lg-field label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-soft); }
+  .lg-field input, .lg-field select { font-family: inherit; font-size: 14px; padding: 7px 8px; border: 1px solid var(--rule); border-radius: 2px; background: #fff; color: var(--ink); }
+  .lg-split-check { display: flex; align-items: center; gap: 5px; font-size: 13px; border: 1px solid var(--rule); padding: 6px 10px; border-radius: 2px; cursor: pointer; user-select: none; }
+  .lg-split-check.checked { background: #efe8d8; border-color: var(--gold); }
+  .lg-add-btn, .lg-btn { font-family: inherit; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; background: var(--ink); color: var(--paper); border: none; padding: 9px 18px; border-radius: 2px; cursor: pointer; margin-top: 4px; }
+  .lg-add-btn:hover, .lg-btn:hover { background: var(--gold); }
+  .lg-entries { margin-top: 4px; }
+  .lg-entry { display: flex; justify-content: space-between; align-items: center; padding: 10px 4px; border-bottom: 1px solid var(--rule); font-size: 13px; gap: 10px; }
+  .lg-entry-left { flex: 1; min-width: 0; }
+  .lg-entry-desc { font-weight: 600; }
+  .lg-entry-meta { font-size: 11px; color: var(--ink-soft); margin-top: 2px; }
+  .lg-entry-amt { white-space: nowrap; font-weight: 700; }
+  .lg-del { background: none; border: none; color: var(--ink-soft); cursor: pointer; font-size: 15px; padding: 2px 6px; }
+  .lg-del:hover { color: var(--debit); }
+  .lg-empty { color: var(--ink-soft); font-style: italic; font-size: 13px; padding: 16px 4px; }
+  .lg-loading { color: var(--ink-soft); font-size: 13px; padding: 20px 4px; }
+  .lg-error { color: var(--debit); font-size: 13px; padding: 10px; background: #fff0ee; border: 1px solid var(--debit); border-radius: 3px; margin-bottom: 14px; }
+</style>
+</head>
+<body>
+<div id="ledger-root"></div>
+<script>
+const SHARED_ACCT_FUNDERS = [0, 2];
+let people = ["Simon", "Joe", "Isaac"];
+let txns = [];
+let tab = "shared";
+let splitAmong = [0, 1, 2];
+let currentUser = 0;
+let showDeleted = false;
+let loadError = null;
+
+function fmt(n) {
+  const sign = n < 0 ? "-" : "";
+  return sign + "$" + Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+async function loadData() {
+  try {
+    const r = await fetch('/api/data');
+    if (!r.ok) throw new Error('Server error ' + r.status);
+    const data = await r.json();
+    people = data.people || people;
+    txns = data.txns || [];
+    loadError = null;
+  } catch (e) {
+    loadError = "Couldn't load saved data (" + e.message + "). Showing nothing yet — try refreshing.";
+  }
+  render();
+}
+
+async function saveData() {
+  try {
+    await fetch('/api/data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ people, txns })
+    });
+  } catch (e) { console.error("Save failed", e); }
+}
+
+function payerLabel(t) {
+  if (t.payer === "sharedAcct") return `${people[SHARED_ACCT_FUNDERS[0]]} & ${people[SHARED_ACCT_FUNDERS[1]]}'s shared account paid`;
+  return `${people[t.payer]} paid`;
+}
+
+function computeBalances() {
+  const balances = people.map(() => 0);
+  txns.filter(t => !t.deleted).forEach(t => {
+    if (t.type === "shared") {
+      const share = t.amount / t.splitAmong.length;
+      if (t.payer === "sharedAcct") {
+        const half = t.amount / SHARED_ACCT_FUNDERS.length;
+        SHARED_ACCT_FUNDERS.forEach(i => { balances[i] += half; });
+      } else {
+        balances[t.payer] += t.amount;
+      }
+      t.splitAmong.forEach(i => { balances[i] -= share; });
+    } else {
+      balances[t.from] += t.amount;
+      balances[t.to] -= t.amount;
+    }
+  });
+  return balances;
+}
+
+function computeSettlement(balances) {
+  const bal = balances.map((b, i) => ({ i, b: Math.round(b * 100) / 100 }));
+  const cr = bal.filter(x => x.b > 0.005).sort((a, b) => b.b - a.b).map(x => ({ ...x }));
+  const db = bal.filter(x => x.b < -0.005).sort((a, b) => a.b - b.b).map(x => ({ ...x }));
+  const moves = [];
+  let ci = 0, di = 0;
+  while (ci < cr.length && di < db.length) {
+    const c = cr[ci], d = db[di];
+    const amt = Math.min(c.b, -d.b);
+    if (amt > 0.005) { moves.push({ from: d.i, to: c.i, amount: amt }); c.b -= amt; d.b += amt; }
+    if (Math.abs(c.b) < 0.01) ci++;
+    if (Math.abs(d.b) < 0.01) di++;
+  }
+  return moves;
+}
+
+function updateName(i, val) { if (val && val.trim()) people[i] = val; saveData(); }
+function toggleSplit(i) { splitAmong = splitAmong.includes(i) ? splitAmong.filter(x => x !== i) : [...splitAmong, i].sort(); render(); }
+function setTab(t) { tab = t; render(); }
+function setCurrentUser(i) { currentUser = i; render(); }
+function toggleShowDeleted() { showDeleted = !showDeleted; render(); }
+
+function addTxn() {
+  const desc = document.getElementById("f-desc").value.trim();
+  const amount = parseFloat(document.getElementById("f-amount").value);
+  const date = document.getElementById("f-date").value;
+  if (!desc || !amount || amount <= 0) return;
+  let entry;
+  if (tab === "shared") {
+    if (splitAmong.length === 0) return;
+    const payerRaw = document.getElementById("f-payer").value;
+    const payer = payerRaw === "sharedAcct" ? "sharedAcct" : parseInt(payerRaw);
+    entry = { id: Date.now(), type: "shared", date, desc, amount, payer, splitAmong: [...splitAmong], addedBy: currentUser, addedAt: new Date().toISOString() };
+  } else {
+    const from = parseInt(document.getElementById("f-from").value);
+    const to = parseInt(document.getElementById("f-to").value);
+    if (from === to) return;
+    entry = { id: Date.now(), type: "direct", date, desc, amount, from, to, addedBy: currentUser, addedAt: new Date().toISOString() };
+  }
+  txns = [entry, ...txns];
+  saveData();
+  document.getElementById("f-desc").value = "";
+  document.getElementById("f-amount").value = "";
+  render();
+}
+
+function deleteTxn(id) {
+  const t = txns.find(x => x.id === id);
+  if (!t) return;
+  t.deleted = true; t.deletedBy = currentUser; t.deletedAt = new Date().toISOString();
+  saveData(); render();
+}
+function restoreTxn(id) {
+  const t = txns.find(x => x.id === id);
+  if (!t) return;
+  delete t.deleted; delete t.deletedBy; delete t.deletedAt;
+  saveData(); render();
+}
+
+function exportData() {
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const backup = { people, txns, exportedAt: new Date().toISOString() };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `shared-ledger-backup-${dateStr}.json`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function el(tag, attrs, children) {
+  const e = document.createElement(tag);
+  if (attrs) Object.entries(attrs).forEach(([k, v]) => {
+    if (k === "class") e.className = v;
+    else if (k === "style") e.setAttribute("style", v);
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2).toLowerCase(), v);
+    else e.setAttribute(k, v);
+  });
+  (children || []).forEach(c => { if (c !== null && c !== undefined) e.appendChild(typeof c === "string" ? document.createTextNode(c) : c); });
+  return e;
+}
+
+function render() {
+  const root = document.getElementById("ledger-root");
+  root.innerHTML = "";
+
+  if (loadError) root.appendChild(el("div", { class: "lg-error" }, [loadError]));
+
+  const actingSelect = el("select", { id: "f-acting", style: "font-family:inherit;font-size:13px;padding:5px 8px;border:1px solid var(--rule);border-radius:2px;background:#fff;" });
+  people.forEach((p, i) => {
+    const opt = el("option", { value: i }, [p]);
+    if (i === currentUser) opt.setAttribute("selected", "selected");
+    actingSelect.appendChild(opt);
+  });
+  actingSelect.addEventListener("change", e => setCurrentUser(parseInt(e.target.value)));
+
+  root.appendChild(el("div", { class: "lg-header" }, [
+    el("div", {}, [
+      el("div", { class: "lg-title" }, ["Shared Ledger"]),
+      el("div", { class: "lg-sub" }, ["Running balances, split three ways"])
+    ]),
+    el("div", { style: "text-align:right" }, [
+      el("div", { class: "lg-sub", style: "margin-bottom:4px" }, ["I am"]),
+      actingSelect,
+      el("button", { class: "lg-btn", style: "margin-top:8px;display:block;width:100%", onClick: exportData }, ["Download backup"])
+    ])
+  ]));
+
+  const namesRow = el("div", { class: "lg-names" });
+  people.forEach((p, i) => {
+    const input = el("input", { class: "lg-name-input" });
+    input.value = p;
+    input.addEventListener("change", e => updateName(i, e.target.value));
+    namesRow.appendChild(input);
+  });
+  root.appendChild(namesRow);
+
+  const balances = computeBalances();
+  const balRow = el("div", { class: "lg-balances" });
+  people.forEach((p, i) => {
+    const b = Math.round(balances[i] * 100) / 100;
+    const cls = b > 0.005 ? "pos" : b < -0.005 ? "neg" : "zero";
+    const caption = b > 0.005 ? "is owed" : b < -0.005 ? "owes" : "settled";
+    balRow.appendChild(el("div", { class: "lg-bal-card" }, [
+      el("div", { class: "lg-bal-name" }, [p]),
+      el("div", { class: "lg-bal-amt lg-num " + cls }, [fmt(Math.abs(b))]),
+      el("div", { class: "lg-bal-caption" }, [caption])
+    ]));
+  });
+  root.appendChild(balRow);
+
+  root.appendChild(el("div", { class: "lg-section-label" }, ["Settle up"]));
+  const settlement = computeSettlement(balances);
+  if (settlement.length === 0) {
+    root.appendChild(el("div", { class: "lg-settle-empty" }, ["Everyone's even — nothing to settle."]));
+  } else {
+    settlement.forEach(m => {
+      root.appendChild(el("div", { class: "lg-settle" }, [
+        el("strong", {}, [people[m.from]]), " pays ", el("strong", {}, [people[m.to]]), " ",
+        el("span", { class: "lg-num" }, [fmt(m.amount)])
+      ]));
+    });
+  }
+
+  root.appendChild(el("div", { class: "lg-section-label" }, ["Add an entry"]));
+  const form = el("div", { class: "lg-form" });
+  const tabs = el("div", { class: "lg-tabs" }, [
+    el("button", { class: "lg-tab " + (tab === "shared" ? "active" : ""), onClick: () => setTab("shared") }, ["Shared expense"]),
+    el("button", { class: "lg-tab " + (tab === "direct" ? "active" : ""), onClick: () => setTab("direct") }, ["Direct payment / loan"])
+  ]);
+  form.appendChild(tabs);
+
+  form.appendChild(el("div", { class: "lg-form-row" }, [
+    el("div", { class: "lg-field" }, [el("label", {}, ["Description"]), el("input", { id: "f-desc", placeholder: "e.g. shared account bill" })]),
+    el("div", { class: "lg-field", style: "max-width:130px" }, [el("label", {}, ["Amount"]), el("input", { id: "f-amount", type: "number", placeholder: "0.00" })]),
+    el("div", { class: "lg-field", style: "max-width:150px" }, [el("label", {}, ["Date"]), el("input", { id: "f-date", type: "date" })])
+  ]));
+  setTimeout(() => { const d = document.getElementById("f-date"); if (d) d.value = new Date().toISOString().slice(0, 10); }, 0);
+
+  if (tab === "shared") {
+    const payerSelect = el("select", { id: "f-payer" });
+    people.forEach((p, i) => payerSelect.appendChild(el("option", { value: i }, [p])));
+    payerSelect.appendChild(el("option", { value: "sharedAcct" }, [`${people[SHARED_ACCT_FUNDERS[0]]} & ${people[SHARED_ACCT_FUNDERS[1]]} shared account`]));
+
+    const checks = el("div", { style: "display:flex;gap:6px;flex-wrap:wrap" });
+    people.forEach((p, i) => {
+      checks.appendChild(el("div", { class: "lg-split-check " + (splitAmong.includes(i) ? "checked" : ""), onClick: () => toggleSplit(i) }, [p]));
+    });
+
+    form.appendChild(el("div", { class: "lg-form-row", style: "align-items:flex-end" }, [
+      el("div", { class: "lg-field", style: "max-width:150px" }, [el("label", {}, ["Paid by"]), payerSelect]),
+      el("div", { class: "lg-field" }, [el("label", {}, ["Split among"]), checks])
+    ]));
+  } else {
+    const fromSelect = el("select", { id: "f-from" });
+    const toSelect = el("select", { id: "f-to" });
+    people.forEach((p, i) => { fromSelect.appendChild(el("option", { value: i }, [p])); toSelect.appendChild(el("option", { value: i }, [p])); });
+    toSelect.value = "1";
+    form.appendChild(el("div", { class: "lg-form-row" }, [
+      el("div", { class: "lg-field" }, [el("label", {}, ["From (pays)"]), fromSelect]),
+      el("div", { class: "lg-field" }, [el("label", {}, ["To (receives)"]), toSelect])
+    ]));
+  }
+
+  form.appendChild(el("button", { class: "lg-add-btn", onClick: addTxn }, ["Add entry"]));
+  root.appendChild(form);
+
+  const activeTxns = txns.filter(t => !t.deleted);
+  root.appendChild(el("div", { class: "lg-section-label" }, [`History (${activeTxns.length})`]));
+  const list = el("div", { class: "lg-entries" });
+  if (activeTxns.length === 0) {
+    list.appendChild(el("div", { class: "lg-empty" }, ["No entries yet — add your first one above."]));
+  } else {
+    activeTxns.forEach(t => {
+      const who = t.type === "shared" ? `${payerLabel(t)}, split among ${t.splitAmong.map(i => people[i]).join(", ")}` : `${people[t.from]} → ${people[t.to]}`;
+      const addedByName = t.addedBy !== undefined ? people[t.addedBy] : null;
+      const meta = addedByName ? `${t.date} · ${who} · added by ${addedByName}` : `${t.date} · ${who}`;
+      list.appendChild(el("div", { class: "lg-entry" }, [
+        el("div", { class: "lg-entry-left" }, [el("div", { class: "lg-entry-desc" }, [t.desc]), el("div", { class: "lg-entry-meta" }, [meta])]),
+        el("div", { class: "lg-entry-amt lg-num" }, [fmt(t.amount)]),
+        el("button", { class: "lg-del", title: "Delete entry", onClick: () => deleteTxn(t.id) }, ["✕"])
+      ]));
+    });
+  }
+  root.appendChild(list);
+
+  const deletedTxns = txns.filter(t => t.deleted);
+  if (deletedTxns.length > 0) {
+    const toggleLabel = showDeleted ? `Hide deleted entries (${deletedTxns.length})` : `Show deleted entries (${deletedTxns.length})`;
+    root.appendChild(el("div", { class: "lg-section-label", style: "cursor:pointer", onClick: toggleShowDeleted }, [toggleLabel]));
+    if (showDeleted) {
+      const dList = el("div", { class: "lg-entries" });
+      deletedTxns.forEach(t => {
+        const who = t.type === "shared" ? `${payerLabel(t)}, split among ${t.splitAmong.map(i => people[i]).join(", ")}` : `${people[t.from]} → ${people[t.to]}`;
+        const addedByName = t.addedBy !== undefined ? people[t.addedBy] : "unknown";
+        const deletedByName = t.deletedBy !== undefined ? people[t.deletedBy] : "unknown";
+        dList.appendChild(el("div", { class: "lg-entry", style: "opacity:0.55" }, [
+          el("div", { class: "lg-entry-left" }, [
+            el("div", { class: "lg-entry-desc", style: "text-decoration:line-through" }, [t.desc]),
+            el("div", { class: "lg-entry-meta" }, [`${t.date} · ${who} · added by ${addedByName} · deleted by ${deletedByName}`])
+          ]),
+          el("div", { class: "lg-entry-amt lg-num", style: "text-decoration:line-through" }, [fmt(t.amount)]),
+          el("button", { class: "lg-del", title: "Restore entry", onClick: () => restoreTxn(t.id) }, ["↺"])
+        ]));
+      });
+      root.appendChild(dList);
+    }
+  }
+}
+
+document.getElementById("ledger-root").innerHTML = '<div class="lg-loading">Opening the ledger…</div>';
+loadData();
+</script>
+</body>
+</html>
