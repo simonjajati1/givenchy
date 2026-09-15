@@ -1,4 +1,4 @@
-const { redisClient, checkPassword, issueToken, setSessionCookie } = require('./_lib');
+const { storage, checkPassword, issueToken, setSessionCookie } = require('./_lib');
 
 // Throttle guesses per IP. This is best-effort: if Redis is unavailable we let
 // the attempt through rather than locking the owners out of their own ledger.
@@ -7,10 +7,10 @@ const MAX_ATTEMPTS = 10;
 
 async function tooManyAttempts(ip) {
   try {
-    const redis = redisClient();
+    const store = storage();
     const key = 'login-attempts:' + ip;
-    const n = await redis.incr(key);
-    if (n === 1) await redis.expire(key, WINDOW);
+    const n = await store.incr(key);
+    if (n === 1) await store.expire(key, WINDOW);
     return n > MAX_ATTEMPTS;
   } catch (e) {
     return false;
@@ -19,7 +19,7 @@ async function tooManyAttempts(ip) {
 
 async function clearAttempts(ip) {
   try {
-    await redisClient().del('login-attempts:' + ip);
+    await storage().del('login-attempts:' + ip);
   } catch (e) { /* non-fatal */ }
 }
 

@@ -2,21 +2,69 @@
 // Files under /api prefixed with "_" are modules, not routes.
 
 const crypto = require('crypto');
-const { Redis } = require('@upstash/redis');
 
 // --- storage -------------------------------------------------------------
-// Accepts either the Upstash-native variable names or the older KV_* names,
-// because the Vercel Upstash integration has used both.
-function redisClient() {
-  const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
-  if (!url || !token) {
-    throw new Error(
-      'Redis is not configured. Set UPSTASH_REDIS_REST_URL and ' +
-      'UPSTASH_REDIS_REST_TOKEN (or the KV_REST_API_* equivalents).'
-    );
+// Vercel's Redis add-ons hand out two different shapes depending on provider:
+//   * REST  — UPSTASH_REDIS_REST_URL + _TOKEN (or the older KV_REST_API_*)
+//   * TCP   — REDIS_URL / KV_URL, a rediss:// connection string
+// Neither client speaks the other's protocol, so pick one at runtime and put
+// a small adapter over the handful of operations this app uses.
+let cachedStore = null;
+
+function storage() {
+  if (cachedStore) return cachedStore;
+
+  const restUrl = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+  const restToken = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
+
+  if (restUrl && restToken) {
+    const { Redis } = require('@upstash/redis');
+    const c = new Redis({ url: restUrl, token: restToken });
+    // This client serializes and parses JSON itself.
+    cachedStore = {
+      kind: 'rest',
+      getJSON: (k) => c.get(k),
+      setJSON: (k, v) => c.set(k, v),
+      incr: (k) => c.incr(k),
+      expire: (k, s) => c.expire(k, s),
+      del: (k) => c.del(k),
+      ping: () => c.ping()
+    };
+    return cachedStore;
   }
-  return new Redis({ url, token });
+
+  const tcpUrl = process.env.REDIS_URL || process.env.KV_URL || process.env.REDIS_URI;
+  if (tcpUrl) {
+    const IORedis = require('ioredis');
+    const c = new IORedis(tcpUrl, {
+      lazyConnect: true,        // connect on first command, not at import
+      connectTimeout: 10000,    // fail fast instead of hanging the function
+      maxRetriesPerRequest: 2
+    });
+    // An unhandled 'error' event would take the process down; command
+    // promises still reject, so failures are not swallowed.
+    c.on('error', () => {});
+    // Unlike the REST client, this one stores raw strings.
+    cachedStore = {
+      kind: 'tcp',
+      getJSON: async (k) => {
+        const v = await c.get(k);
+        if (v === null || v === undefined) return null;
+        try { return JSON.parse(v); } catch (e) { return null; }
+      },
+      setJSON: (k, v) => c.set(k, JSON.stringify(v)),
+      incr: (k) => c.incr(k),
+      expire: (k, s) => c.expire(k, s),
+      del: (k) => c.del(k),
+      ping: () => c.ping()
+    };
+    return cachedStore;
+  }
+
+  throw new Error(
+    'Redis is not configured. Provide REDIS_URL (or KV_URL), or ' +
+    'UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN (or the KV_REST_API_* pair).'
+  );
 }
 
 // --- auth ----------------------------------------------------------------
@@ -87,6 +135,6 @@ function clearSessionCookie(res) {
 }
 
 module.exports = {
-  redisClient, checkPassword, issueToken, isAuthed,
+  storage, checkPassword, issueToken, isAuthed,
   setSessionCookie, clearSessionCookie, COOKIE
 };

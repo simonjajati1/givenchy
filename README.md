@@ -17,15 +17,25 @@ Production (and Preview, if you use it).
 | Variable | Required | Notes |
 | --- | --- | --- |
 | `APP_PASSWORD` | yes | The password that unlocks the ledger. |
-| `UPSTASH_REDIS_REST_URL` | yes | Added automatically when you connect the Upstash integration. |
-| `UPSTASH_REDIS_REST_TOKEN` | yes | Same. |
+| Redis credentials | yes | See below — the name depends on your provider. |
 | `AUTH_SECRET` | no | Session signing key. Defaults to a value derived from `APP_PASSWORD`. |
 
-The code also accepts `KV_REST_API_URL` / `KV_REST_API_TOKEN` in place of the
-`UPSTASH_*` pair, since the Vercel integration has used both names.
+### Redis credentials
 
-Changing `APP_PASSWORD` invalidates existing sessions (unless `AUTH_SECRET` is
-set explicitly), which is the easiest way to log everyone out.
+Vercel's Redis add-ons hand out one of two shapes, and the app accepts either:
+
+- **TCP** — `REDIS_URL` (or `KV_URL`), a `rediss://` connection string. Used by
+  the Redis marketplace integrations. Handled with `ioredis`.
+- **REST** — `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` (or the
+  `KV_REST_API_*` pair). Handled with `@upstash/redis`.
+
+REST is preferred when both are present. The two clients speak different
+protocols, so a REST client cannot use `REDIS_URL` and vice versa — that
+mismatch is the most likely cause of a 500 on `/api/data`.
+
+Hit `/api/health` on a deployment to see which variables it can see, which
+connection type it chose, and whether Redis answers. It returns booleans and
+connection errors only, never credential values.
 
 ## Storage
 
@@ -53,5 +63,5 @@ records who entered a row, it is not an identity check.
 ```bash
 cd shared-ledger-app
 npm install
-APP_PASSWORD=... UPSTASH_REDIS_REST_URL=... UPSTASH_REDIS_REST_TOKEN=... vercel dev
+APP_PASSWORD=... REDIS_URL=redis://localhost:6379 vercel dev
 ```

@@ -1,4 +1,4 @@
-const { redisClient, isAuthed } = require('./_lib');
+const { storage, isAuthed } = require('./_lib');
 const { SEED } = require('./_seed');
 
 const KEY = 'personal-draws-data';
@@ -15,13 +15,13 @@ module.exports = async (req, res) => {
       return res.status(401).json({ error: 'Not authenticated.' });
     }
 
-    const redis = redisClient();
+    const store = storage();
 
     if (req.method === 'GET') {
-      let data = await redis.get(KEY);
+      let data = await store.getJSON(KEY);
       if (!data) {
         data = SEED;
-        await redis.set(KEY, data); // initialize storage with seed on first load
+        await store.setJSON(KEY, data); // initialize storage with seed on first load
       }
       return res.status(200).json(data);
     }
@@ -32,7 +32,7 @@ module.exports = async (req, res) => {
       if (!body || !Array.isArray(body.entries)) {
         return res.status(400).json({ error: 'Expected a ledger object with an entries array.' });
       }
-      await redis.set(KEY, body);
+      await store.setJSON(KEY, body);
       return res.status(200).json({ ok: true });
     }
 
