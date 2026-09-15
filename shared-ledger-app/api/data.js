@@ -8,11 +8,13 @@ module.exports = async (req, res) => {
   // wildcard let any site on the internet read and overwrite the ledger.
   res.setHeader('Cache-Control', 'no-store');
 
-  if (!isAuthed(req)) {
-    return res.status(401).json({ error: 'Not authenticated.' });
-  }
-
   try {
+    // Inside the try: a missing APP_PASSWORD makes this throw, and an
+    // uncaught throw here surfaces as an opaque 500 with no explanation.
+    if (!isAuthed(req)) {
+      return res.status(401).json({ error: 'Not authenticated.' });
+    }
+
     const redis = redisClient();
 
     if (req.method === 'GET') {
