@@ -1,5 +1,5 @@
 const { redisClient, isAuthed } = require('./_lib');
-const { SEED } = require('./seed');
+const { SEED } = require('./_seed');
 
 const KEY = 'personal-draws-data';
 
