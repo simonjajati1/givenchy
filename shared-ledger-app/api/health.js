@@ -20,11 +20,19 @@ module.exports = async (req, res) => {
 
   let redis = 'not attempted';
   let kind = null;
+  let urlMeta = null;
+  let lastError = null;
   try {
     const store = storage();
     kind = store.kind;
-    await store.ping();
-    redis = 'ok';
+    urlMeta = store.urlMeta || null;
+    try {
+      await store.ping();
+      redis = 'ok';
+    } catch (e) {
+      lastError = store.lastError || null;
+      redis = 'FAILED: ' + e.message;
+    }
   } catch (e) {
     redis = 'FAILED: ' + e.message;
   }
@@ -41,5 +49,5 @@ module.exports = async (req, res) => {
     problems.push('Credentials exist but the connection failed. See "redis" above.');
   }
 
-  return res.status(200).json({ env, connection: kind, redis, problems, ok: problems.length === 0 });
+  return res.status(200).json({ env, connection: kind, urlMeta, lastError, redis, problems, ok: problems.length === 0 });
 };

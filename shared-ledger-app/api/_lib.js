@@ -36,14 +36,20 @@ function storage() {
   const tcpUrl = process.env.REDIS_URL || process.env.KV_URL || process.env.REDIS_URI;
   if (tcpUrl) {
     const IORedis = require('ioredis');
+    // family:0 lets Node try both IPv4 and IPv6 (Happy Eyeballs) — several
+    // managed Redis providers resolve to AAAA-only or mixed records, and
+    // ioredis's old default of forcing IPv4 then times out repeatedly,
+    // which surfaces as a generic "max retries per request" error with no
+    // hint that DNS/connect is the real failure.
     const c = new IORedis(tcpUrl, {
       lazyConnect: true,        // connect on first command, not at import
       connectTimeout: 10000,    // fail fast instead of hanging the function
-      maxRetriesPerRequest: 2
+      maxRetriesPerRequest: 2,
+      family: 0
     });
-    // An unhandled 'error' event would take the process down; command
-    // promises still reject, so failures are not swallowed.
-    c.on('error', () => {});
+    // Track the last real socket/TLS/auth error so callers can see *why*
+    // a command failed instead of just the generic retry-limit message.
+    c.on('error', (err) => { cachedStore && (cachedStore.lastError = err && (err.code || err.message)); });
     // Unlike the REST client, this one stores raw strings.
     cachedStore = {
       kind: 'tcp',
@@ -56,7 +62,25 @@ function storage() {
       incr: (k) => c.incr(k),
       expire: (k, s) => c.expire(k, s),
       del: (k) => c.del(k),
-      ping: () => c.ping()
+      // Connect explicitly first: with lazyConnect the first ping()
+      // otherwise goes through ioredis's command queue/retry wrapper,
+      // which reports only the generic "max retries" message. Calling
+      // connect() directly surfaces the real socket/TLS/auth rejection
+      // (ENOTFOUND, ECONNREFUSED, WRONGPASS, certificate errors, etc).
+      ping: async () => {
+        if (c.status === 'wait' || c.status === 'end') {
+          await c.connect();
+        }
+        return c.ping();
+      },
+      lastError: null,
+      // Safe metadata for diagnostics: scheme/host/port only, never auth.
+      urlMeta: (() => {
+        try {
+          const u = new URL(tcpUrl);
+          return { protocol: u.protocol, host: u.hostname, port: u.port };
+        } catch (e) { return null; }
+      })()
     };
     return cachedStore;
   }
